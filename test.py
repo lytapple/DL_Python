@@ -1,8 +1,16 @@
-import numpy as np
-dataset_filename = "affinity_dataset.txt"
-X = np.loadtxt(dataset_filename)
-num_apple_purchases = 0
-for sample in X:
-    if sample[3] == 1:
-        num_apple_purchases += 1
-print("{0} people bought apples".format(num_apple_purchases))
+def enroll(a,b,c=1,d=2):
+    print(a,b,c,d)
+enroll(10,1)
+enroll(1,5)
+enroll(1,2,3)
+enroll(1,4,d=6)
+
+def calc(numbers):
+    sum = 0
+    for n in numbers:
+        sum = sum + n * n
+    return sum
+d = calc([3])
+print([1,2,3][1:2])
+from matplotlib import pyplot as plt
+plt.plot([1,2,3] , [1,2,3], '-o')
