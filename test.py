@@ -1,7 +1,20 @@
-#encoding=utf-8
-from urllib import quote
-import urllib.request
-if __name__ == '__main__':
-    url = 'http://api.ltp-cloud.com/analysis/?api_key=M1z3A1v4F4gdjNpwTR0i4BoArpkrTJ8HZYbVUOws&text=我是中国人&pattern=dp&format=plain'
-    result = urllib.request.urlopen(quote(url, safe='/:?=&'))
-    print(result)
+%%javascript
+
+function set_label(label){
+    var kernel = IPython.notebook.kernel;
+    kernel.execute("labels.append(" + label + ")");
+    load_next_tweet();
+}
+
+function load_next_tweet(){
+   var code_input = "get_tweet()";
+   var kernel = IPython.notebook.kernel;
+   var callbacks = { 'iopub' : {'output' : handle_output}};
+   kernel.execute(code_input, callbacks, {silent:false});
+}
+
+function handle_output(out){
+   console.log(out);
+   var res = out.content.data["text/plain"];
+   $("div#tweet_text").html(res);
+}
