@@ -60,18 +60,36 @@ model_filename = os.path.join("./python_context.pkl")
 print(model_filename)
 
 from sklearn.externals import joblib
-context_classifier = joblib.load(model_filename)
-y_pred = context_classifier.predict(tweets_text)
-relevant_tweets = [tweets_text[i] for i in range(len(tweets)) if y_pred[i] == 1]
-relevant_users = [original_users[i] for i in range(len(tweets)) if y_pred[i] == 1]
+#context_classifier = joblib.load(model_filename)
+#y_pred = context_classifier.predict(tweets_text)
+relevant_tweets = [tweets_text[i] for i in range(len(tweets)) if True ]
+relevant_users = [original_users[i] for i in range(len(tweets)) if True ]
 
-output_filename = os.path.join("./output_python_tweets.json")
-with open(output_filename, 'a') as output_file:
-    test_friends = get_friends(t, user_ids[relevant_users[0]])
-    for tweet in test_friends:
-        if 'text' in tweet:
-            #print(tweet['user']['screen_name'])
-            #print(tweet['text'])
-            #print()
-            output_file.write(json.dumps(tweet))
-            output_file.write("\n\n")
+
+friends = {}
+for user in relevant_users:
+    print("Obtaining friends for user {}".format(user))
+    sys.stdout.flush()
+    user_id = user_ids[user]
+    friends[user_id] = get_friends(t, user_id)
+
+friends = {user_id:friends[user_id] for user_id in friends
+             if len(friends[user_id]) > 0}
+
+
+
+# output_filename = os.path.join("./output_python_tweets.json")
+# with open(output_filename, 'a') as output_file:
+#     for tweet in test_friends:
+#             #print(tweet['user']['screen_name'])
+#             #print(tweet['text'])
+#             #print()
+#             output_file.write(json.dumps(tweet))
+#             output_file.write("\n\n")
+
+
+
+import json
+friends_filename = os.path.join("./output_python_tweets.json")
+with open(friends_filename, 'w') as outf:
+    json.dump(friends, outf)
