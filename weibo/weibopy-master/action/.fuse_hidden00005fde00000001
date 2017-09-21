@@ -1,0 +1,220 @@
+import webbrowser
+import time
+import math
+import os.path
+import optparse
+
+# support importing module from project packages
+# import sys
+# sys.path.append('..')
+
+from api4weibo.weibo import APIClient
+from api4weibo.weibo import APIError
+
+from dao.UserDAO import UserDAO
+from dao.StatusDAO import StatusDAO
+from dao.CommentDAO import CommentDAO
+from dao.GeoDAO import GeoDAO
+from dao.DBHandler import DBHandler
+
+
+class Grabber:
+    """
+        Grab statuses, comments and users from Sina Weibo API
+    """
+
+    APP_KEY = '3786116041'
+    APP_SECRET = '142e5e3428035a0cfddb6bb8db686e6b'
+    CALLBACK_URL = 'http://www.baidu.com'
+
+    client = None
+
+    @staticmethod
+    def connect(fname):
+
+        Grabber.client = APIClient(
+            app_key=Grabber.APP_KEY,
+            app_secret=Grabber.APP_SECRET,
+            redirect_uri=Grabber.CALLBACK_URL
+        )
+
+        if os.path.exists(str(fname)):
+            with open(str(fname), 'r') as store_file:
+                access_conds = store_file.readline()
+            if bool(access_conds):
+                print "open file: " + str(fname)
+                access_conds = access_conds.split(',')
+                Grabber.client.set_access_token(access_conds[0],
+                                                access_conds[1])
+            # using the old access_token if it works
+            if Grabber.client.is_expires() is False:
+                store_file.close()
+                return
+        store_file = open(str(fname), 'w')
+        url = Grabber.client.get_authorize_url()
+
+        try:
+            webbrowser.open_new(url)
+        except webbrowser.Error, e:
+            print e
+
+        # to get access_token and expires_in
+        code = raw_input("Please Enter the Code: ")
+
+        response = Grabber.client.request_access_token(code)
+        access_token = response.access_token
+        expires_in = response.expires_in
+
+        # save access_token and expires_in
+        store_file.write('{0}, {1}\n'.format(access_token, expires_in))
+        store_file.flush()
+        store_file.close()
+
+        # initialize client successfully
+        Grabber.client.set_access_token(access_token, expires_in)
+
+    @staticmethod
+    def close():
+        DBHandler.closeConn()
+
+    @staticmethod
+    def start():
+        #open the database
+        DBHandler.connect()
+
+    @staticmethod
+    def getStatuses(page):
+        statuses = Grabber.client.statuses.friends_timeline.get(
+            count=30, page=page).statuses
+
+        for status in statuses:
+            try:
+                if ('retweeted_status' in status and
+                        status.retweeted_status is not None):
+                    Grabber.getInformations(status.retweeted_status)
+                Grabber.getInformations(status)
+            except Exception, e:
+                print e
+                DBHandler.rollback()
+                print "Roll back and sleep 60s to begin from next status"
+        # sleep 30s for next trip get
+        time.sleep(30)
+
+    @staticmethod
+    def getInformations(status):
+        Grabber.storeUser(status.user)
+        if 'geo' in status and status.geo is not None:
+            status.geo.gid = Grabber.storeGeo(status.geo)
+        Grabber.storeStatus(status)
+        Grabber.grabComments(status)
+        DBHandler.commit()
+
+    @staticmethod
+    def grabComments(status):
+        retry = 4
+        rest = 20
+
+        # grab comments <= 400
+        count = math.ceil(status.comments_count / 100.)
+        count = 4 if count > 4 else count
+        page = 1
+
+        print "=========================================================="
+        print "Grabbing status{0}'s comments is to begin. Total: {1}".format(
+            status.id, count)
+        time.sleep(20)
+
+        while count > 0:
+            try:
+                comments = Grabber.client.comments.show.get(
+                    id=status.id, page=page, count=100)
+                # reset
+                if retry != 4:
+                    rest = 30
+                    retry = 4
+
+                for comment in comments.comments:
+                    Grabber.storeUser(comment.user)
+                    Grabber.storeComment(comment)
+                count -= 1
+                if count > 0:
+                    print ("The {0}th grabbing comments finished, sleep {1}s "
+                           "to begin the next.").format(page, rest)
+                    print ("-------------------------------------------------"
+                           "------------------")
+                    time.sleep(rest)
+                page += 1
+            except APIError, e:
+                if retry > 0:
+                    rest = 60 * retry
+                    print "APIError, sleep {0}s to try {1}th again...".format(
+                        rest, retry)
+                    time.sleep(rest)
+                    retry -= 1
+                else:
+                    raise e
+
+        print "Grabbing status{0}'s comments finished.".format(status.id)
+        time.sleep(10)
+        print "=========================================================="
+
+    @staticmethod
+    def storeGeo(geo):
+        GeoDAO.store(geo)
+        if __name__ == '__main__':
+            print "province_name,city_name(%s, %s)" % (
+                geo.province_name, geo.city_name)
+
+    @staticmethod
+    def storeUser(user):
+        UserDAO.store(user)
+        if __name__ == '__main__':
+            print "User:%s(%d,%d,%d)" % (user.screen_name,
+                                         user.followers_count,
+                                         user.friends_count,
+                                         user.statuses_count)
+
+    @staticmethod
+    def storeComment(comment):
+        if 'reply_comment' in comment and comment.reply_comment is not None:
+            comment.reply_comment.status = comment.status
+            Grabber.storeUser(comment.reply_comment.user)
+            Grabber.storeComment(comment.reply_comment)
+        CommentDAO.store(comment)
+        if __name__ == '__main__':
+            print "Comment: %s---%s" % (comment.user.screen_name, comment.text)
+
+    @staticmethod
+    def storeStatus(status):
+        StatusDAO.store(status)
+        if __name__ == '__main__':
+            print "Status: %s---%s(%d, %d, %d)" % (status.user.screen_name,
+                                                   status.text,
+                                                   status.reposts_count,
+                                                   status.comments_count,
+                                                   status.attitudes_count)
+
+
+def main():
+    parser = optparse.OptionParser(
+        "usage %prog -f <auth_file>")
+    parser.add_option('-f', dest='fname', type='string',
+                      help='specify auth_file')
+    (options, args) = parser.parse_args()
+    if options.fname is None:
+        print parser.usage
+        exit(0)
+    Grabber.start()
+
+    Grabber.connect(options.fname)
+
+    print 'Getting Information from account auth code in file {0}'.format(
+        options.fname)
+    for j in range(3):
+        Grabber.getStatuses(1 + j)
+
+    Grabber.close()
+
+# Test for Grabber
+if __name__ == '__main__':
+    main()
